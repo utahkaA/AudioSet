@@ -25,8 +25,6 @@ class Downloader(object):
     def __init__(self, media, n_cpu):
         self._checkdir(media)
         self.max_proc = round(n_cpu)
-        self.not_available_mov = list()
-        self.n_downloaded_mov = 0
         self.url = "https://www.youtube.com/watch?v={0}"
 
         # Load movie list whose record has: YouTube id; start senconds; end seconds; and labels.
@@ -85,6 +83,8 @@ class Downloader(object):
         return mov_lists
 
     def start(self):
+        self._clean_temp()
+
         mov_lists = self._split()
 
         jobs = list()
@@ -99,9 +99,8 @@ class Downloader(object):
 
     def _start(self, mov_list):
         for i, mov_record in mov_list.iterrows():
-            self.n_downloaded_mov += 1
-            msg = "Progress: {0}/{1}".format(self.n_downloaded_mov,
-                                             self.n_samples)
+            msg = "(pid:{0}) Progress: {1}/{2}"
+            msg = msg.format(os.getpid(), i, mov_list.shape[0])
             print(color.BOLD.format(msg))
 
             ytid = mov_record['YTID']
@@ -132,7 +131,7 @@ class Downloader(object):
                     self._trim(ytid, start, end)
 
                 except yt.utils.DownloadError:
-                    self.not_available_mov.append(ytid)
+                    self._record_not_available_mov(ytid)
 
                 # Remove tmp file
                 self._remove_temp(ytid)
@@ -155,6 +154,12 @@ class Downloader(object):
                          duration)
         subprocess.call(cmd, shell=True)
 
+    def _clean_temp(self):
+        find = subprocess.Popen(shlex.split("find {0} -type f".format(self.path_to_tmp)),
+                                stdout=subprocess.PIPE)
+        xargs_rm = subprocess.Popen(shlex.split("xargs rm"),
+                                    stdin=find.stdout)
+
     def _remove_temp(self, ytid):
         tmp = "{0}/{1}.wav".format(self.path_to_tmp, ytid)
         if path.isfile(tmp):
@@ -162,19 +167,13 @@ class Downloader(object):
             cmd = shlex.split(cmd)
             subprocess.call(cmd)
 
-""" TODO
-DONE
-- ディレクトリがあるかどうか確認
-- youtube_dl の outtmpl オプションを調べる
-- DL できなかった動画のリストを作成
-- SoX でフォーマットを揃える
-- SoX でトリミングする
-- 並列処理を加える (start)
-- tmp を消す処理
-
-CPU
-4 Core 8 Thread
-"""
+    def _record_not_available_mov(self, ytid):
+        path_to_record = "{0}/AudioSet/deleted_mov.txt"
+        path_to_record = path_to_record.format(self.media)
+        with open(path_to_record, 'a+') as stream:
+            content = stream.read()
+            if not ytid in content:
+                stream.write("{0}\n".format(ytid))
 
 if __name__ == "__main__":
     media = sys.argv[1]
